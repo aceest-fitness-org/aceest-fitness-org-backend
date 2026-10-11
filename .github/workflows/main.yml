@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-lint:
+    name: Build & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile (syntax check)
+        run: python -m compileall -q app.py tests
+
+      - name: Lint with flake8
+        run: flake8 --max-line-length=100 .
+
+  docker-test:
+    name: Docker Image & Tests
+    needs: build-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test image
+        run: docker build --target test -t aceest-api:test .
+
+      - name: Run Pytest inside the container
+        run: docker run --rm aceest-api:test
+
+      - name: Build production image
+        run: docker build -t aceest-api:ci .
+
+      - name: Smoke test the production image
+        run: |
+          docker run -d --name api -p 5000:5000 aceest-api:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:5000/health; then
+              docker rm -f api
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check failed. Container logs:"
+          docker logs api
+          docker rm -f api
+          exit 1
