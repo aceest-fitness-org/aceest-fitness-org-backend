@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 ARG PYTHON_VERSION=3.12
 
-COPY requirenment.txt .
-RUN pip install -r requirenment.txt
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 
 FROM base AS test
