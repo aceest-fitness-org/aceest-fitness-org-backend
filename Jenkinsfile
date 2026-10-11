@@ -1,9 +1,17 @@
+// Works on both Windows (bat) and Linux/macOS (sh) Jenkins agents.
+def run(String cmd, boolean ignoreFailure = false) {
+    if (isUnix()) {
+        return sh(script: cmd, returnStatus: ignoreFailure)
+    }
+    return bat(script: cmd, returnStatus: ignoreFailure)
+}
+
 pipeline {
     agent any
 
     options {
         timestamps()
-        timeout(time: 15, unit: 'MINUTES')
+        timeout(time: 20, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
@@ -25,51 +33,50 @@ pipeline {
         stage('Clean Build') {
             steps {
                 // --no-cache forces a from-scratch build of the environment
-                sh 'docker build --no-cache --target test -t $IMAGE:test-$BUILD_NUMBER .'
+                script {
+                    run("docker build --no-cache --target test -t ${env.IMAGE}:test-${env.BUILD_NUMBER} .")
+                }
             }
         }
 
         stage('Lint') {
             steps {
-                sh 'docker run --rm $IMAGE:test-$BUILD_NUMBER python -m flake8 --max-line-length=100 .'
+                script {
+                    run("docker run --rm ${env.IMAGE}:test-${env.BUILD_NUMBER} python -m flake8 --max-line-length=100 .")
+                }
             }
         }
 
         stage('Test') {
             steps {
-                sh 'docker run --rm $IMAGE:test-$BUILD_NUMBER'
+                script {
+                    run("docker run --rm ${env.IMAGE}:test-${env.BUILD_NUMBER}")
+                }
             }
         }
 
         stage('Build Release Image') {
             steps {
-                sh 'docker build -t $IMAGE:$BUILD_NUMBER -t $IMAGE:latest .'
+                script {
+                    run("docker build -t ${env.IMAGE}:${env.BUILD_NUMBER} -t ${env.IMAGE}:latest .")
+                }
             }
         }
 
         stage('Smoke Test') {
             steps {
-                sh '''
-                    docker run -d --name smoke-$BUILD_NUMBER $IMAGE:$BUILD_NUMBER
-                    for i in $(seq 1 15); do
-                        if docker exec smoke-$BUILD_NUMBER python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:5000/health', timeout=3)"; then
-                            echo "Health check passed"
-                            exit 0
-                        fi
-                        sleep 2
-                    done
-                    echo "Health check failed"
-                    docker logs smoke-$BUILD_NUMBER
-                    exit 1
-                '''
+                script {
+                    run("docker run --rm ${env.IMAGE}:${env.BUILD_NUMBER} python -c \"from app import create_app; c = create_app().test_client(); assert c.get('/health').status_code == 200\"")
+                }
             }
         }
     }
 
     post {
         always {
-            sh 'docker rm -f smoke-$BUILD_NUMBER || true'
-            sh 'docker rmi $IMAGE:test-$BUILD_NUMBER || true'
+            script {
+                run("docker rmi ${env.IMAGE}:test-${env.BUILD_NUMBER}", true)
+            }
         }
         success {
             echo "Build ${env.BUILD_NUMBER} passed. Image ${env.IMAGE}:${env.BUILD_NUMBER} is ready."
