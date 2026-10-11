@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend import app_v1_1 as m
+import app as m
 
 
 @pytest.fixture
