@@ -55,3 +55,4 @@ def test_metrics(client):
 def test_find_program_helper():
     assert find_program("zzz") == (None, None)
     assert find_program(" fl ")[0] == "FL"
+    
