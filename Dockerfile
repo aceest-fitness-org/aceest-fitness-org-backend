@@ -1,15 +1,15 @@
 # syntax=docker/dockerfile:1
 ARG PYTHON_VERSION=3.12
 
-# ---- base: dependencies only (cached until requirenment.txt changes) ----
+# ---- base: dependencies only (cached until requirements.txt changes) ----
 FROM python:${PYTHON_VERSION}-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
-COPY requirenment.txt .
-RUN pip install -r requirenment.txt
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 
 FROM base AS test

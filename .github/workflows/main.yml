@@ -17,7 +17,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirenment.txt
+        run: pip install -r requirements.txt
 
       - name: Compile (syntax check)
         run: python -m compileall -q app.py tests
