@@ -2,11 +2,10 @@
 import importlib
 import os
 import re
-import sys
 from pathlib import Path
 
-APP_DIR = Path(__file__).resolve().parent / "app"
-sys.path.insert(0, str(APP_DIR))
+PACKAGE = "app"
+APP_DIR = Path(__file__).resolve().parent / PACKAGE
 
 
 def _version_key(name):
@@ -25,4 +24,4 @@ def module_name():
 
 
 def create_app():
-    return importlib.import_module(module_name()).create_app()
+    return importlib.import_module(f"{PACKAGE}.{module_name()}").create_app()

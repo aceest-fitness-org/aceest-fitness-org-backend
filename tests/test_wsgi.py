@@ -2,9 +2,8 @@
 
 Two kinds of test live here:
 
-* Selection logic runs against throw-away module files generated from version numbers.
-  The expected answer is computed from those numbers, not typed in, and the numbers use
-  major versions >= 91 so they can never collide with a real module in app/.
+* Selection logic runs against throw-away modules generated from version numbers, inside a
+  throw-away package. The expected answer is computed from those numbers, not typed in.
 * Real-repo tests discover whatever app/app_v*.py files exist, so adding a new version
   needs no edit to this file.
 """
@@ -19,6 +18,8 @@ import wsgi
 
 REAL_DIR = Path(__file__).resolve().parent.parent / "app"
 REAL_MODULES = sorted(p.stem for p in REAL_DIR.glob("app_v*.py"))
+
+SYNTHETIC_PKG = "synthetic_app_pkg"  # never collides with the real "app" package
 
 APP_SOURCE = (
     "from flask import Flask\n\n\n"
@@ -48,18 +49,21 @@ def as_tuple(name):
 
 @pytest.fixture
 def make_versions(tmp_path, monkeypatch):
-    """Create a module file for each version tuple and point wsgi at that folder."""
+    """Create a module for each version tuple in a temporary package and point wsgi at it."""
+    package_dir = tmp_path / SYNTHETIC_PKG
+    package_dir.mkdir()
+
     def _make(versions):
         for version in versions:
-            (tmp_path / f"{as_name(version)}.py").write_text(APP_SOURCE)
-        monkeypatch.setattr(wsgi, "APP_DIR", tmp_path)
+            (package_dir / f"{as_name(version)}.py").write_text(APP_SOURCE)
+        monkeypatch.setattr(wsgi, "APP_DIR", package_dir)
+        monkeypatch.setattr(wsgi, "PACKAGE", SYNTHETIC_PKG)
         monkeypatch.syspath_prepend(str(tmp_path))
         monkeypatch.delenv("APP_MODULE", raising=False)
 
     yield _make
-    for name, module in list(sys.modules.items()):
-        if str(tmp_path) in str(getattr(module, "__file__", "") or ""):
-            del sys.modules[name]
+    for name in [n for n in sys.modules if n.split(".")[0] == SYNTHETIC_PKG]:
+        del sys.modules[name]
 
 
 # ---- selection logic (generated modules) ----
@@ -91,7 +95,7 @@ def test_missing_modules_fail_loudly(tmp_path, monkeypatch):
 
 def test_create_app_loads_the_selected_module(make_versions):
     make_versions([(91, 1), (92, 3)])
-    assert wsgi.create_app().config["MARK"] == as_name((92, 3))
+    assert wsgi.create_app().config["MARK"] == f"{SYNTHETIC_PKG}.{as_name((92, 3))}"
 
 
 # ---- real repository (discovered, never hard-coded) ----
