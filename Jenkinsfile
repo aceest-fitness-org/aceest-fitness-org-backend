@@ -66,7 +66,7 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 script {
-                    run("docker run --rm ${env.IMAGE}:${env.BUILD_NUMBER} python -c \"from app import create_app; c = create_app().test_client(); assert c.get('/health').status_code == 200\"")
+                    run("docker run --rm ${env.IMAGE}:${env.BUILD_NUMBER} python -c \"from app_v1_1 import create_app; c = create_app().test_client(); assert c.get('/health').status_code == 200\"")
                 }
             }
         }
