@@ -28,7 +28,7 @@ FROM deps AS runtime
 
 RUN useradd --system --uid 10001 --no-create-home appuser
 
-COPY --chown=appuser:appuser *.py ./
+COPY --chown=appuser:appuser app/app_v1_1.py ./
 
 USER appuser
 
