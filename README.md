@@ -1,63 +1,128 @@
-# ACEest Fitness & Gym: Flask API (versioned)
+# ACEest Fitness & Gym: Backend API
 
-One Flask backend per version of the original Tkinter prototype. Each version has its own module in `backend/`, its own Pytest file in `tests/`, and a matching web page in `aceest-frontend/`.
+[![CI](https://github.com/aceest-fitness-org/aceest-fitness-org-backend/actions/workflows/main.yml/badge.svg)](https://github.com/aceest-fitness-org/aceest-fitness-org-backend/actions/workflows/main.yml)
+
+Flask REST API for the ACEest Fitness & Gym platform. It serves the training programs (workout plan, nutrition plan and display color) and the site metrics used by the ACEest client application. The service is containerized with Docker, tested with Pytest, and validated automatically by GitHub Actions and Jenkins.
+
+## Tech stack
+
+Python 3.12, Flask, Gunicorn, Pytest, flake8, Docker, GitHub Actions, Jenkins.
+
+## API endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Liveness check, returns `{"status": "ok"}` |
+| GET | `/programs` | List all programs (`code`, `name`, `color`) |
+| GET | `/programs/<key>` | One program with its workout and diet plan. `<key>` is a code (`FL`, `MG`, `BG`) or the full name, and matching ignores case |
+| GET | `/metrics` | Site capacity, area and break-even figures |
+
+Unknown programs return `404` with a JSON `error` message.
+
+## Project structure
 
 ```
-aceest-api/
-├── app.py                 # entry point: serves any version (default: newest)
-├── backend/
-│   ├── app_v1_1.py ... app_v3_2_4.py
-├── tests/
-│   ├── test_v1_1.py ... test_v3_2_4.py
-│   └── test_entrypoint.py
+.
+├── .github/workflows/main.yml   # GitHub Actions pipeline
+├── tests/test_app.py            # Pytest suite
+├── app.py                       # Flask application
+├── Dockerfile                   # Multi-stage build (test + runtime)
+├── Jenkinsfile                  # Jenkins pipeline
 ├── pytest.ini
 └── requirements.txt
 ```
 
-## Version map
+## Local setup and execution
 
-| Backend module | Frontend page | Tests | Adds |
-|---|---|---|---|
-| `app_v1_1.py` | `v1.1.html` | 11 | Program catalogue with workout and diet plans |
-| `app_v1_1_2.py` | `v1.1.2.html` | 11 | Compact plans for the client-table UI |
-| `app_v2_0_1.py` | `v2.0.1.html` | 41 | SQLite clients, calorie targets, weekly progress |
-| `app_v2_1_2.py` | `v2.1.2.html` | 41 | Same as 2.0.1 |
-| `app_v2_2_1.py` | `v2.2.1.html` | 44 | Progress history for the adherence chart |
-| `app_v2_2_4.py` | `v2.2.4.html` | 82 | Goals, workouts and exercises, body metrics, BMI |
-| `app_v3_0_1.py` | `v3.0.1.html` | 82 | Same as 2.2.4 |
-| `app_v3_1_2.py` | `v3.1.2.html` | 84 | Login, membership expiry, AI program generator, PDF report |
-| `app_v3_2_4.py` | `v3.2.4.html` | 66 | Role-based login, membership status, workouts, PDF report |
-
-## Run locally
+Requires Python 3.10 or newer and Git.
 
 ```bash
-python -m venv venv && source venv/bin/activate     # Windows: venv\Scripts\activate
+git clone https://github.com/aceest-fitness-org/aceest-fitness-org-backend.git
+cd aceest-fitness-org-backend
+
+python -m venv venv
+source venv/bin/activate            # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-python app.py                                        # newest version on :5000
-ACEEST_VERSION=2_2_4 python app.py                   # any other version
-curl localhost:5000/health                           # {"status": "ok", "version": "3.2.4"}
+
+python app.py                       # starts on http://localhost:5000
 ```
 
-The database path comes from `DB_PATH` (default `aceest_fitness.db`). Set `ADMIN_PASSWORD` to change the seeded `admin` password (default `admin`, for development only) and `CORS_ORIGIN` to restrict the allowed browser origin (default `*`). Serve the frontend pages with `python -m http.server 8000` from `aceest-frontend/`.
-
-## Run the tests
+Try it from a second terminal:
 
 ```bash
-pytest -v                          # everything (about 470 tests, 20 s)
-pytest tests/test_v3_1_2.py -v     # one version
-flake8 --max-line-length=100 .     # lint, as run in CI
+curl localhost:5000/health
+curl localhost:5000/programs
+curl localhost:5000/programs/FL
 ```
 
-The same commands work inside Docker (`docker run --rm <image> pytest -v`) and in the GitHub Actions and Jenkins pipelines.
+On macOS, port 5000 can be taken by AirPlay Receiver. If you see "Address already in use", turn that feature off or change the port in `app.py`.
 
-## What the tests cover
+## Running the tests manually
 
-- **Pure logic:** calorie formula per program, input validation (`to_number`, `parse_date`), week labels, BMI categories and boundaries, AI program shape, focus and reproducibility with a seeded RNG, membership expiry, PDF structure and xref offsets.
-- **Endpoints:** status codes and payloads for success paths, validation failures (400), unknown clients (404), update-versus-create behaviour, and ordering rules (progress by insertion, metrics by date, workouts newest first).
-- **Security:** hashed passwords, rejected logins, SQL-injection input stored literally, sanitised PDF filenames.
+```bash
+pytest -v                                   # run the full suite
+flake8 --max-line-length=100 .              # lint (no output means clean)
+```
 
-## Notes on behaviour versus the desktop app
+The suite covers every endpoint plus the lookup logic: success paths, lookup by code and by full name, case-insensitive matching, unknown program (404), and the health and metrics responses.
 
-- Passwords are hashed (the Tkinter app stored plain text), and login returns the role only. There are no sessions or tokens yet, so do not expose this publicly as is.
-- `POST /clients` is an upsert that keeps unspecified fields, instead of `INSERT OR REPLACE`, which wiped them.
-- The PDF report is generated without third-party libraries, so the Docker image stays small.
+### Tests inside Docker
+
+This runs the same suite in the environment that production uses:
+
+```bash
+docker build --target test -t aceest-api:test .
+docker run --rm aceest-api:test                                          # Pytest
+docker run --rm aceest-api:test python -m flake8 --max-line-length=100 . # lint
+```
+
+## Running with Docker
+
+```bash
+docker build -t aceest-api .
+docker run -d --name aceest-api -p 5000:5000 aceest-api
+curl localhost:5000/health
+docker stop aceest-api
+```
+
+The Dockerfile has three stages:
+
+| Stage | Purpose |
+|---|---|
+| `base` | Slim Python image plus dependencies, cached until `requirements.txt` changes |
+| `test` | Adds the test suite, used by CI and Jenkins |
+| `runtime` | Default target. Runs Gunicorn as a non-root user and has a built-in health check |
+
+## CI/CD overview
+
+Both pipelines run the same checks from the same commands, so a result that passes in one should pass in the other.
+
+### GitHub Actions (`.github/workflows/main.yml`)
+
+Triggered on every `push` and `pull_request`. It has two jobs, and the second runs only if the first passes.
+
+1. **Build & Lint**: installs dependencies, compiles the code to catch syntax errors (`compileall`), and runs flake8.
+2. **Docker Image & Tests**: builds the `test` image, runs Pytest inside the container, builds the production image, then starts it and checks `/health`.
+
+A red job blocks the pull request from merging when branch protection requires these checks.
+
+### Jenkins (`Jenkinsfile`)
+
+A Pipeline job, configured as "Pipeline script from SCM", pulls the latest code from this repository and acts as a second, independent quality gate in a controlled build environment. It polls GitHub every 5 minutes for new commits.
+
+| Stage | What it does |
+|---|---|
+| Checkout | Pulls the latest commit from GitHub |
+| Clean Build | `docker build --no-cache`, rebuilding the environment from scratch |
+| Lint | Runs flake8 inside the container |
+| Test | Runs Pytest inside the container |
+| Build Release Image | Builds the production image and tags it with the Jenkins build number and `latest` |
+| Smoke Test | Runs the release image and checks that `/health` responds |
+
+The Jenkinsfile works on Windows and Linux agents. It needs Docker and Git available on the Jenkins machine.
+
+## Branching and commits
+
+- `main` holds stable code and `dev` is the integration branch.
+- Work happens on short-lived branches such as `feature/*`, `fix/*` and `infra/*`. Changes reach `dev` and then `main` through pull requests, and the Actions checks must pass first.
+- Commit messages follow a type prefix: `feat:`, `fix:`, `test:`, `build:`, `ci:`, `style:`, `docs:`.
