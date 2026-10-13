@@ -2,39 +2,53 @@
 
 [![CI](https://github.com/aceest-fitness-org/aceest-fitness-org-backend/actions/workflows/main.yml/badge.svg)](https://github.com/aceest-fitness-org/aceest-fitness-org-backend/actions/workflows/main.yml)
 
-Flask REST API for the ACEest Fitness & Gym platform. It serves the training programs (workout plan, nutrition plan and display color) and the site metrics used by the ACEest client application. The service is containerized with Docker, tested with Pytest, and validated automatically by GitHub Actions and Jenkins.
+Flask REST API for the ACEest Fitness & Gym platform. It serves the training programs (workout plan, nutrition plan, display color and calorie factor) used by the ACEest client application. The backend is **versioned**: every release lives in its own module under `app/`, and the newest one is served automatically. The service is containerized with Docker, tested with Pytest, and validated by GitHub Actions and Jenkins.
 
 ## Tech stack
 
 Python 3.12, Flask, Gunicorn, Pytest, flake8, Docker, GitHub Actions, Jenkins.
 
-## API endpoints
+## API endpoints (version 1.1)
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/health` | Liveness check, returns `{"status": "ok"}` |
-| GET | `/programs` | List all programs (`code`, `name`, `color`) |
+| GET | `/health` | Liveness check, returns `{"status": "ok", "version": "1.1"}` |
+| GET | `/programs` | List all programs (`code`, `name`, `color`, `calorie_factor`) |
 | GET | `/programs/<key>` | One program with its workout and diet plan. `<key>` is a code (`FL`, `MG`, `BG`) or the full name, and matching ignores case |
-| GET | `/metrics` | Site capacity, area and break-even figures |
 
-Unknown programs return `404` with a JSON `error` message.
+Unknown programs return `404` with a JSON `error` message. Later versions add endpoints; each module in `app/` documents its own at the top of the file.
 
 ## Project structure
 
 ```
 .
 ├── .github/workflows/main.yml   # GitHub Actions pipeline
-├── tests/test_app.py            # Pytest suite
-├── app.py                       # Flask application
+├── app/
+│   ├── __init__.py
+│   └── app_v1_1.py              # one module per version: app_v1_2.py, app_v2_1.py, ...
+├── tests/
+│   ├── test_v1_1.py             # one test file per version
+│   └── test_wsgi.py             # tests for version selection
+├── wsgi.py                      # entry point: serves the newest app/app_v*.py
 ├── Dockerfile                   # Multi-stage build (test + runtime)
 ├── Jenkinsfile                  # Jenkins pipeline
 ├── pytest.ini
 └── requirements.txt
 ```
 
+## How versioning works
+
+`wsgi.py` looks at every `app/app_v*.py` file and serves the highest version, comparing numbers properly (so `app_v1_10` is newer than `app_v1_2`). To release a new version:
+
+1. Add `app/app_v1_2.py` with a `create_app()` function.
+2. Add `tests/test_v1_2.py`.
+3. Push. The pipelines, the Docker image and the test run all pick up the new version without any other change.
+
+To run a specific version instead of the newest, set `APP_MODULE` to the module name, for example `APP_MODULE=app_v1_1`.
+
 ## Local setup and execution
 
-Requires Python 3.10 or newer and Git.
+Requires Python 3.10 or newer (CI uses 3.12) and Git.
 
 ```bash
 git clone https://github.com/aceest-fitness-org/aceest-fitness-org-backend.git
@@ -44,7 +58,14 @@ python -m venv venv
 source venv/bin/activate            # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-python app.py                       # starts on http://localhost:5000
+flask --app wsgi:create_app run --port 5000     # serves the newest version
+```
+
+To run an older version:
+
+```bash
+APP_MODULE=app_v1_1 flask --app wsgi:create_app run              # macOS / Linux / Git Bash
+$env:APP_MODULE="app_v1_1"; flask --app wsgi:create_app run      # Windows PowerShell
 ```
 
 Try it from a second terminal:
@@ -55,16 +76,17 @@ curl localhost:5000/programs
 curl localhost:5000/programs/FL
 ```
 
-On macOS, port 5000 can be taken by AirPlay Receiver. If you see "Address already in use", turn that feature off or change the port in `app.py`.
+On macOS, port 5000 can be taken by AirPlay Receiver. If you see "Address already in use", use another port, for example `--port 5001`.
 
 ## Running the tests manually
 
 ```bash
-pytest -v                                   # run the full suite
+pytest -v                                   # every version's tests, plus the wsgi tests
+pytest tests/test_v1_1.py -v                # one version
 flake8 --max-line-length=100 .              # lint (no output means clean)
 ```
 
-The suite covers every endpoint plus the lookup logic: success paths, lookup by code and by full name, case-insensitive matching, unknown program (404), and the health and metrics responses.
+The suite covers each version's endpoints (success paths, lookup by code and by full name, case-insensitive matching, unknown program returning 404) and the version selection itself. The selection tests check that the newest version wins, that numbers sort correctly, that `APP_MODULE` overrides the choice, and that every version found in `app/` loads and answers `/health`.
 
 ### Tests inside Docker
 
@@ -85,13 +107,16 @@ curl localhost:5000/health
 docker stop aceest-api
 ```
 
-The Dockerfile has three stages:
+Pin an older version at run time with `-e APP_MODULE=app_v1_1`, or at build time with `--build-arg APP_MODULE=app_v1_1`.
+
+The Dockerfile has these stages:
 
 | Stage | Purpose |
 |---|---|
-| `base` | Slim Python image plus dependencies, cached until `requirements.txt` changes |
-| `test` | Adds the test suite, used by CI and Jenkins |
-| `runtime` | Default target. Runs Gunicorn as a non-root user and has a built-in health check |
+| `base` | Slim Python image and project label |
+| `deps` | Installs the dependencies, cached until `requirements.txt` changes |
+| `test` | Adds the whole repository including tests, used by CI and Jenkins |
+| `runtime` | Default target. Contains only `wsgi.py` and `app/`, runs Gunicorn as a non-root user, and has a built-in health check |
 
 ## CI/CD overview
 
@@ -108,18 +133,18 @@ A red job blocks the pull request from merging when branch protection requires t
 
 ### Jenkins (`Jenkinsfile`)
 
-A Pipeline job, configured as "Pipeline script from SCM", pulls the latest code from this repository and acts as a second, independent quality gate in a controlled build environment. It polls GitHub every 5 minutes for new commits.
+A Pipeline job, configured as "Pipeline script from SCM", pulls the latest code from this repository and acts as a second, independent quality gate in a controlled build environment. It polls GitHub every 2 minutes for new commits.
 
 | Stage | What it does |
 |---|---|
 | Checkout | Pulls the latest commit from GitHub |
 | Clean Build | `docker build --no-cache`, rebuilding the environment from scratch |
 | Lint | Runs flake8 inside the container |
-| Test | Runs Pytest inside the container |
+| Test | Runs Pytest for every version inside the container |
 | Build Release Image | Builds the production image and tags it with the Jenkins build number and `latest` |
-| Smoke Test | Runs the release image and checks that `/health` responds |
+| Smoke Test | Runs the release image, prints which version it serves, and checks that `/health` responds |
 
-The Jenkinsfile works on Windows and Linux agents. It needs Docker and Git available on the Jenkins machine.
+After a successful build, the pipeline deletes the temporary test image and keeps only the 3 newest release images, so old builds don't fill the disk. The Jenkinsfile works on Windows and Linux agents and needs Docker and Git available on the Jenkins machine.
 
 ## Branching and commits
 
