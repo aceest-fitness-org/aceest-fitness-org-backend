@@ -2,7 +2,7 @@
 
 import pytest
 
-import app as m
+import app.app as m
 
 
 @pytest.fixture
