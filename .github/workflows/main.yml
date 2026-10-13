@@ -20,7 +20,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Compile (syntax check)
-        run: python -m compileall -q app.py tests
+        run: python -m compileall -q app wsgi.py tests
 
       - name: Lint with flake8
         run: flake8 --max-line-length=100 .
@@ -46,6 +46,7 @@ jobs:
           docker run -d --name api -p 5000:5000 aceest-api:ci
           for i in $(seq 1 20); do
             if curl -fsS http://localhost:5000/health; then
+              docker logs api | head -n 5
               docker rm -f api
               exit 0
             fi
