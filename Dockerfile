@@ -1,4 +1,8 @@
-FROM python:3.12-slim AS base
+
+# syntax=docker/dockerfile:1
+ARG PYTHON_VERSION=3.12
+
+FROM python:${PYTHON_VERSION}-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -7,20 +11,30 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# ---- Dependencies ----
 FROM base AS deps
+
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# ---- Tests ----
+FROM deps AS test
+
+COPY . .
+CMD ["python", "-m", "pytest", "-q"]
+
+# ---- Production runtime ----
 FROM deps AS runtime
 
 RUN useradd --system --uid 10001 --no-create-home appuser
 
-COPY --chown=appuser:appuser app/ ./app/
-
-ENV PYTHONPATH=/app
+COPY --chown=appuser:appuser *.py ./
 
 USER appuser
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--access-logfile", "-", "app.app_1_1:create_app()"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:5000/health', timeout=3)"]
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--access-logfile", "-", "app_v1_1:create_app()"]
